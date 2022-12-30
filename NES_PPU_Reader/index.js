@@ -1,5 +1,8 @@
+/* global ImageData */
 import PPU from './nes/core/PPU.js'
 import ROM from './nes/core/ROM.js'
+
+import { nes2bppTo8bit } from './CHR.js'
 
 const NesPalette = [
 
@@ -151,19 +154,25 @@ const Mario1TilePalette = [
   0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
 ]
 
-function getColor(color, palette, palNumber = 0, component) {
+function getColor (color, palette, palNumber = 0, component) {
   let index = palNumber * 4 + color
-  return NesPalette[palette[index]][component]
+  if (index >= palette.length) {
+    return NesPalette[0][component]
+  }
+  else {
+    return NesPalette[palette[index]][component]
+  }
+  
 }
 
 /* global fetch */
 const catalog = 'roms/'
 const roms = [
-  'Donkey Kong (World) (Rev A).nes',
-  'Super Mario Bros. (World).nes',
-  'Nekketsu Kakutou Densetsu (Japan).nes',
-  /*'Mega Man 2 (USA).nes',
-  'Mega Man (USA).nes'*/
+  // 'Donkey Kong (World) (Rev A).nes',
+  'Super Mario Bros. (World).nes'
+  // 'Nekketsu Kakutou Densetsu (Japan).nes',
+  // 'Mega Man 2 (USA).nes',
+  // 'Mega Man (USA).nes'
 ]
 
 class ChrReader {
@@ -193,51 +202,12 @@ for (let i in roms) {
 
 function getPatternTile (memory, tile) {
   let start = tile * 16
-  let lowTileData = memory.slice(start, start + 8)
-  let highTileData = memory.slice(start + 8, start + 16)
 
-  /*
-  DEBUG
-  let py = 0
-  let px = 0
-  let p1 = ((highTileData[py] >> px) & 1) << 1
-  let p2 = ((lowTileData[py] >> px) & 1)
-  let pp = p1 + p2
-
-  console.log(p1, p2, pp)
-
-  for(let i in lowTileData) {
-    console.log(i, lowTileData[i].toString(2).padStart(8, '0'), highTileData[i].toString(2).padStart(8, '0'))
-  }
- */
-
-  let pixels = []
-
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      
-      //console.log(highTileData[y].toString(2).padStart(8, '0'))
-      let p = y * 8 + 7 - x
-      pixels[p] = (((highTileData[y] >> x) & 1) << 1) + ((lowTileData[y] >> x) & 1)
-    }
-
-  }
-
-  return pixels
+  return nes2bppTo8bit(memory, start, 16)
 }
 
-function getTilePixels(tile, pal, palNum) {
-  /*
-  let patternTablesColors = [
-    [91, 149, 248],
-    [198, 77, 8], 
-    [249, 191, 177],
-    [0x00, 0x00, 0x00]
-  ]
-  */
-
+function getTilePixels (tile, pal, palNum) {
   let pixels = new Uint8ClampedArray(64 * 4)
-
   for (let i in tile) {
     let c = tile[i]
     pixels[i * 4] = getColor(c, pal, palNum, 0)
@@ -247,6 +217,17 @@ function getTilePixels(tile, pal, palNum) {
   }
 
   return pixels
+}
+
+function decimalToHexString (number)
+{
+  if (number < 0) {
+    number = 0xFFFFFFFF + number + 1
+  }
+
+  let hex = number.toString(16).toUpperCase()
+
+  return hex
 }
 
 function drawMemory (memory, bank = 0) {
@@ -261,16 +242,27 @@ function drawMemory (memory, bank = 0) {
   const context = canvas.getContext('2d')
   document.body.appendChild(canvas)
 
-  // let pal = Mario1Palettes
-  let pal = KunioPalletes
+  let pal = Mario1Palettes
+
+  let goomba = 127
+  for (let i = 0; i < 4; i++) {
+    let start = (goomba + i) * 16
+    let chr = memory.slice(start, start + 16)
+    for (let p = 0; p < 2; p++) {
+      let arr = chr.slice(p * 8, p * 8 + 8)
+      let arr2 = []
+      for (let ii in arr) {
+        arr2[ii] = '0x' + decimalToHexString(arr[ii]).padStart(2, '0')
+      }
+      console.log(arr2)
+    }
+  }
 
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < columns; x++) {
       let t = bank * 16 * 16 + y * columns + x
-      //let palNum = t < Mario1TilePalette.length ? Mario1TilePalette[t] : 0
-      // console.log(t, Mario1TilePalette.length, palNum)
-      let palNum = 4
-      let tile = getPatternTile(memory, bank * 16 * 16 + y * 16 + x)
+      let palNum = t < Mario1TilePalette.length ? Mario1TilePalette[t] : 0
+      let tile = getPatternTile(memory, t)
       let pixels = getTilePixels(tile, pal, palNum)
       context.putImageData(new ImageData(pixels, 8, 8), x * (8 + space),  y * (8 + space))
     }
@@ -281,9 +273,8 @@ function parseRom (dataBuffer) {
   let reader = new ChrReader()
   reader.loadROM(dataBuffer)
 
-
   let banks = reader.rom.chr.length / 4096
-  
+
   for (let b = 0; b < banks; b++) {
     drawMemory(reader.rom.chr, b)
   }
